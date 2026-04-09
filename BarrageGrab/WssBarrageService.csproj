@@ -16,6 +16,8 @@
     <Deterministic>true</Deterministic>
     <IsWebBootstrapper>false</IsWebBootstrapper>
     <TargetFrameworkProfile />
+    <NuGetPackageImportStamp>
+    </NuGetPackageImportStamp>
     <PublishUrl>publish\</PublishUrl>
     <Install>true</Install>
     <InstallFrom>Disk</InstallFrom>
@@ -30,8 +32,6 @@
     <ApplicationVersion>1.0.0.%2a</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
-    <NuGetPackageImportStamp>
-    </NuGetPackageImportStamp>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -221,6 +221,8 @@
   <ItemGroup>
     <Compile Include="AppRuntime.cs" />
     <Compile Include="AppSetting.cs" />
+    <Compile Include="Modles\AnchorFinishInfo.cs" />
+    <Compile Include="Proxy\ProxyEventArgs\LiveCompanEventArgs.cs" />
     <Compile Include="Server\ComPortServer.cs" />
     <Compile Include="Utility\DyApiHelper.cs" />
     <Compile Include="Utility\EmbResource.cs" />

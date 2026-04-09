@@ -15,6 +15,7 @@ using System.Timers;
 using BarrageGrab.Modles;
 using BarrageGrab.Modles.JsonEntity;
 using BarrageGrab.Modles.ProtoEntity;
+using BarrageGrab.Proxy.ProxyEventArgs;
 using Fleck;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -89,11 +90,14 @@ namespace BarrageGrab
             this.grab.OnRoomUserSeqMessage += Grab_OnRoomUserSeqMessage;
             this.grab.OnFansclubMessage += Grab_OnFansclubMessage; ;
             this.grab.OnControlMessage += Grab_OnControlMessage;
+            this.grab.Proxy.OnLiveCompanAction += Proxy_OnLiveCompanAction;
 
             this.socketServer = socket;
             //dieout.Start();
             giftCountTimer.Start();
         }
+
+      
 
         //礼物缓存清理计时器回调
         private void GiftCountTimer_Elapsed(object sender, ElapsedEventArgs e)
@@ -562,8 +566,66 @@ namespace BarrageGrab
                 AttachRoomInfo(enty);
                 FirePack(enty, msgType);
                 PrintMsg(enty, msgType);
-                pack = new BarrageMsgPack(enty.ToJson(), PackMsgType.下播, e.Process);
+                pack = new BarrageMsgPack(enty.ToJson(), msgType, e.Process);
             }
+
+            if (pack != null)
+            {
+                Broadcast(pack);
+            }
+        }
+
+        //直播伴侣上下播
+        private void Proxy_OnLiveCompanAction(object sender, LiveCompanEventArgs e)
+        {            
+            var msgid = DateTime.Now.Ticks;
+            BarrageMsgPack pack = null;
+
+            if (e.Action == 1)
+            {
+                RoomInfo roomInfo = e.Data as RoomInfo;
+                if(roomInfo == null) return;
+
+                var enty = new LiveCompanActionMsg()
+                {
+                    MsgId = msgid,
+                    Content = $" [{roomInfo.Owner.Nickname}] 开播了",
+                    RoomId = roomInfo.RoomId,
+                    WebRoomId = AppRuntime.RoomCaches.GetCachedWebRoomid(roomInfo.RoomId),
+                    User = null,
+                    Appid = "0",
+                    Data = roomInfo,
+                };
+
+                var msgType = PackMsgType.直播伴侣开播;
+                AttachRoomInfo(enty);
+                FirePack(enty, msgType);
+                PrintMsg(enty, msgType);
+                pack = new BarrageMsgPack(enty.ToJson(), msgType, e.ProcessName);
+            }
+
+            if (e.Action == 2)
+            {                
+                var info = e.Data as AnchorFinishInfo;
+                if (info.RoomId.IsNullOrWhiteSpace()) return;
+
+                var enty = new LiveCompanActionMsg()
+                {
+                    MsgId = msgid,
+                    Content = $" [{info.Nickname}]下播，房间号:{info.RoomId}",
+                    RoomId = info.RoomId,
+                    WebRoomId = AppRuntime.RoomCaches.GetCachedWebRoomid(info.RoomId),                    
+                    Appid = "0",
+                    Data = info
+                };
+
+                var msgType = PackMsgType.直播伴侣下播;
+                AttachRoomInfo(enty);
+                FirePack(enty, msgType);
+                PrintMsg(enty, msgType);
+                pack = new BarrageMsgPack(enty.ToJson(), msgType, e.ProcessName);
+            }
+
 
             if (pack != null)
             {

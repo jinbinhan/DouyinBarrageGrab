@@ -18,17 +18,3 @@ function getQueryString(name) {
     return null;
 }
 
-if (getQueryString("pause") === "true" || AUTOPAUSE === true) {
-    //自动暂停一次播放
-    var pauseIdx = setInterval(() => {
-        let playbtn = document.querySelector(".xgplayer-play");
-        if (!playbtn) return;
-        let status = playbtn.getAttribute("data-state");
-        if (status !== "play") return;
-        playbtn.click();
-        clearInterval(pauseIdx);
-        console.log("已自动暂停播放");
-    }, 500);
-}
-
-

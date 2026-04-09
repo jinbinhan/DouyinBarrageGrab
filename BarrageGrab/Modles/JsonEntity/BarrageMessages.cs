@@ -30,7 +30,12 @@ namespace BarrageGrab.Modles.JsonEntity
         [Description("分享")]
         直播间分享 = 8,
         [Description("下播")]
-        下播 = 9
+        下播 = 9,
+
+        [Description("伴侣开播")]
+        直播伴侣开播 = 101,
+        [Description("伴侣下播")]
+        直播伴侣下播 = 102
     }
 
     /// <summary>
@@ -65,6 +70,15 @@ namespace BarrageGrab.Modles.JsonEntity
         正常进入 = 0,
         通过分享进入 = 6,
         //...其他暂时未知
+    }
+
+    /// <summary>
+    /// 直播伴侣操作事件
+    /// </summary>
+    public enum LiveCompanAction
+    {
+        开播 = 0,
+        下播 = 1
     }
 
     /// <summary>
@@ -148,7 +162,7 @@ namespace BarrageGrab.Modles.JsonEntity
         /// 解析所有未知类型的消息
         /// </summary>
         public void IfAnyMsg(Action<Msg> action)
-        {            
+        {
             // 将 Data 转换为 JObject
             JObject jObject = null;
             try
@@ -534,5 +548,15 @@ namespace BarrageGrab.Modles.JsonEntity
         /// 分享目标
         /// </summary>
         public ShareType ShareType { get; set; }
+    }
+
+    /// <summary>
+    /// 直播伴侣操作消息
+    /// </summary>
+    public class LiveCompanActionMsg : Msg
+    {
+        public LiveCompanAction Action { get; set; }
+
+        public object Data { get; set; } = null;
     }
 }
