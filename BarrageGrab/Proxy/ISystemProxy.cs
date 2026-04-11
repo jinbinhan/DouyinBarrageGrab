@@ -14,6 +14,11 @@ namespace BarrageGrab.Proxy
         event EventHandler<SystemProxyChangeEventArgs> OnProxyStatus;
 
         /// <summary>
+        /// 直播伴侣操作事件
+        /// </summary>
+        event EventHandler<LiveCompanEventArgs> OnLiveCompanAction;
+
+        /// <summary>
         /// Http上游代理地址
         /// </summary>
         string HttpUpstreamProxy { get; }

@@ -1,4 +1,6 @@
-﻿using System;
+﻿using BarrageGrab.Proxy.ProxyEventArgs;
+using Microsoft.Win32;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -64,7 +66,15 @@ namespace BarrageGrab
             SetConsoleMode(hStdin, mode);
         }
 
-
+        /// <summary>
+        /// 关闭系统代理
+        /// </summary>
+        public static void CloseSystemProxy()
+        {
+            RegistryKey registry = Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings", true);
+            registry.SetValue("ProxyEnable", 0);
+            registry.SetValue("ProxyServer", $"");
+        }
 
         public enum CmdShow : int
         {

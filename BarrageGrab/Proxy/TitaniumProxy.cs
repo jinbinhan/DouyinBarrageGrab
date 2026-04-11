@@ -208,7 +208,10 @@ namespace BarrageGrab.Proxy
             var contentType = e.HttpClient.Response.ContentType ?? "";
 
             //处理直播伴侣开播更新
-            await HookSelfLive(e);
+            await HookLiveCompanStartLive(e);
+
+            //处理直播伴侣下播
+            await HookLiveCompanEndLive(e);
 
             //处理弹幕
             await HookBarrage(e);
@@ -221,15 +224,15 @@ namespace BarrageGrab.Proxy
         }
 
         // Hook 直播伴侣开播信息并更新
-        private async Task HookSelfLive(SessionEventArgs e)
+        private async Task HookLiveCompanStartLive(SessionEventArgs e)
         {
-            //Hook 直播伴侣直播间创建 https://webcast.amemv.com/webcast/room/create/?ac=wifi&app_name=webcast_mate&version_code=7.3.3&device_platform=windows&webcast_sdk_version=1520&resolution=1707%2A1067&os_version=10.0.22621&language=zh&aid=2079&live_id=1&channel=online&device_id=2164319493312045&iid=42200736232026&extra_first_tag_id=22&extra_second_tag_id=22093&extra_third_tag_id=22093195&extra_encoder_core=qsv&extra_codec_name=h264_qsv_ex&extra_codec_is_ex=1&extra_use_265=0&msToken=8tJ0NCHWun7wHpdPd_fd0_nlUmgRwM8sQYThkqkq4-qR00mKiJ3Wd3h05r4mm5HO_R_qA2qeTIn8qR2yjcXXoh5mmXkewUuTS4G1Yoi_D-m8EZiacZVWoDqgnqw=&X-Bogus=DFSzswVLJzC4fUiKt5a4a3JCqOA1&_signature=_02B4Z6wo00001fHp2wAAAIDCdmADbSJfNUnx6d-AABpim6xRe8bmnvrrC1Z7GWTwK8sPujtot.bkv7h8bk-nde0WvO-78H3cwglXRzZk8uHTs3ZKWlZqOqaBVjgdHIRritV.peh4bkRETofZ7f
+            //Hook 直播伴侣直播间创建 https://webcast.amemv.com/webcast/room/create
             string uri = e.HttpClient.Request.RequestUri.ToString();
             var urix = new Uri(uri);
             var processid = e.HttpClient.ProcessId.Value;
             var processName = base.GetProcessName(processid);
-            var response = e.HttpClient.Response;
-            if (!uri.Contains("/webcast/room/create")) return;
+            var response = e.HttpClient.Response;            
+            if (!urix.AbsolutePath.TrimEnd('/').EndsWith("/webcast/room/create")) return;
             if (processName != "直播伴侣") return;
             if (response.StatusCode != 200) return;
             var reponse = await e.GetResponseBodyAsString();
@@ -263,6 +266,56 @@ namespace BarrageGrab.Proxy
             {
                 AppRuntime.RoomCaches.AddRoomInfoCache(roomInfo);
             }
+
+            FireLiveCompanEvent(new LiveCompanEventArgs()
+            {
+                Action = 1,
+                Data = roomInfo,
+                ProcessId = processid,
+                ProcessName = processName
+            });
+        }
+
+        // Hook 直播伴侣关播
+        private async Task HookLiveCompanEndLive(SessionEventArgs e)
+        {
+            //Hook 直播伴侣关闭直播 https://webcast5-mate-lf.amemv.com/webcast/room/anchor_finish_info
+            string uri = e.HttpClient.Request.RequestUri.ToString();
+            var urix = new Uri(uri);
+            var processid = e.HttpClient.ProcessId.Value;
+            var processName = base.GetProcessName(processid);
+            var response = e.HttpClient.Response;
+            if (!urix.AbsolutePath.TrimEnd('/').EndsWith("/webcast/room/anchor_finish_info")) return;            
+            if (processName != "直播伴侣") return;
+            if (response.StatusCode != 200) return;
+            var reponse = await e.GetResponseBodyAsString();
+
+            dynamic jobj = JsonConvert.DeserializeObject<JObject>(reponse);
+            JObject owner = jobj?.data?.owner?.ToObject<JObject>();
+
+            if (owner == null) return;
+
+            var info = new AnchorFinishInfo()
+            {
+                Nickname = owner["nickname"].Value<string>(),
+                HeadUrl = owner["avatar_thumb"]?["url_list"]?.Values<string>().FirstOrDefault() ?? "",
+                SecUid = owner["sec_uid"]?.Value<string>() ?? "",
+                UserId = owner["id"]?.Value<long>() ?? 0,
+                DisplayId = owner["display_id"]?.Value<string>() ?? "",
+                RoomId = owner["own_room"]?["room_ids_str"]?.Values<string>().FirstOrDefault() ?? ""
+            };
+
+            if (info.UserId == 0) return;
+
+            Logger.LogInfo($"直播伴侣关播，关播账号:{info.DisplayId} {info.Nickname} RoomId={info.RoomId}");
+
+            FireLiveCompanEvent(new LiveCompanEventArgs()
+            {
+                Action = 2,
+                Data = info,
+                ProcessId = processid,
+                ProcessName = processName
+            });
         }
 
         // Hook 弹幕
@@ -282,6 +335,7 @@ namespace BarrageGrab.Proxy
                )
             {
                 e.DataReceived += WebSocket_DataReceived;
+                e.DataSent += WebSocket_DataSent;
                 var urix = new Uri(uri);
                 var roomid = urix.GetQueryParam("room_id");
                 Logger.LogInfo($"订阅到新的弹幕流地址，roomid:{roomid}");
@@ -333,6 +387,8 @@ namespace BarrageGrab.Proxy
             }
         }
 
+ 
+
         // Hook 直播页面
         private async Task HookPageAsync(SessionEventArgs e)
         {
@@ -360,152 +416,50 @@ namespace BarrageGrab.Proxy
             if (liveRoomMactch.Success)
             {
                 string webrid = liveRoomMactch.Groups[1].Value;
-                //获取直播页注入js
-                string liveRoomInjectScript = EmbResource.GetFileContent("livePage.js");
-                //注入上下文变量;
-                var scriptContext = BuildContext(new Dictionary<string, string>()
-                {
-                    {"PROCESS_NAME","'{processName}'"},
-                    {"AUTOPAUSE",AppSetting.Current.AutoPause.ToString().ToLower()}
-                });
-                liveRoomInjectScript = scriptContext + liveRoomInjectScript;
                 var html = await e.GetResponseBodyAsString();
-                var doc = new HtmlDocument();
-                doc.LoadHtml(html);
 
-                if (!liveRoomInjectScript.IsNullOrWhiteSpace())
+                //利用 HtmlAgilityPack 在尾部注入script 标签
+                RoomInfo roominfo;
+                var tup = RoomInfo.TryParseRoomPageHtml(html, out roominfo);
+                int code = tup.Item1;
+                string msg = tup.Item2;
+
+                if (code == 0)
                 {
-                    //利用 HtmlAgilityPack 在尾部注入script 标签
-                    RoomInfo roominfo;
-                    var tup = RoomInfo.TryParseRoomPageHtml(html, out roominfo);
-                    int code = tup.Item1;
-                    string msg = tup.Item2;
-
-                    if (code == 0)
-                    {
-                        Logger.LogInfo($"直播页{webrid} [{roominfo.Owner.Nickname}]的直播间，房间信息已采集到缓存");
-                        roominfo.WebRoomId = webrid;
-                        roominfo.LiveUrl = url;
-                        AppRuntime.RoomCaches.AddRoomInfoCache(roominfo);
-                    }
-                    else
-                    {
-                        roominfo = new RoomInfo();
-                        roominfo.WebRoomId = webrid;
-                        roominfo.LiveUrl = url;
-                        //正则匹配主播标题
-                        //<div class="st8eGKi4" data-e2e="live-room-nickname">和平精英小夜y</div>
-                        var match = Regex.Match(html, @"(?<=live-room-nickname""\>).+(?=<\/div>)");
-                        if (match.Success)
-                        {
-                            roominfo.Owner = new RoomInfo.RoomAnchor()
-                            {
-                                Nickname = match.Value,
-                                UserId = "-1"
-                            };
-                        }
-                        AppRuntime.RoomCaches.AddRoomInfoCache(roominfo);
-                    }
-
-                    try
-                    {
-
-                        //找到body标签,在尾部注入script标签
-                        var body = doc.DocumentNode.SelectSingleNode("//body");
-                        if (body != null)
-                        {
-                            var script = doc.CreateElement("script");
-                            script.InnerHtml = liveRoomInjectScript;
-                            body.AppendChild(script);
-                            html = doc.DocumentNode.OuterHtml;
-                            Logger.LogTrace($"直播页{urlNoQuery},用户脚本已成功注入!\n");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError(ex, $"直播页{url},用户脚本注入异常");
-                    }
+                    Logger.LogInfo($"直播页{webrid} [{roominfo.Owner.Nickname}]的直播间，房间信息已采集到缓存");
+                    roominfo.WebRoomId = webrid;
+                    roominfo.LiveUrl = url;
                 }
-
-                //给script标签 src加上时间戳避免缓存
-                if (AppSetting.Current.DisableLivePageScriptCache)
+                else
                 {
-                    ScriptAddTocks(doc);
+                    roominfo = new RoomInfo();
+                    roominfo.WebRoomId = webrid;
+                    roominfo.LiveUrl = url;
+                    //正则匹配主播标题
+                    //<div class="st8eGKi4" data-e2e="live-room-nickname">和平精英小夜y</div>
+                    var match = Regex.Match(html, @"(?<=live-room-nickname""\>).+(?=<\/div>)");
+                    if (match.Success)
+                    {
+                        roominfo.Owner = new RoomInfo.RoomAnchor()
+                        {
+                            Nickname = match.Value,
+                            UserId = "-1"
+                        };
+                    }                    
                 }
+                AppRuntime.RoomCaches.AddRoomInfoCache(roominfo);
 
-                html = doc.DocumentNode.OuterHtml;
+                //控制自动暂停
+                if (AppSetting.Current.AutoPause)
+                {
+                    html = html.Replace("autoplay&quot;:true", "autoplay&quot;:false");
+                    Logger.LogInfo("已禁用直播自动播放");
+                }
 
                 e.SetResponseBodyString(html);
-            }
-
-            //直播主页
-            if (liveHomeMatch.Success)
-            {
-                //获取直播页注入js
-                string liveHoomInjectScript = EmbResource.GetFileContent("livePage.js");
-
-                //注入上下文变量;
-                var scriptContext = BuildContext(new Dictionary<string, string>()
-                {
-                    {"PROCESS_NAME","'{processName}'"},
-                    {"AUTOPAUSE",AppSetting.Current.AutoPause.ToString().ToLower()}
-                });
-                liveHoomInjectScript = scriptContext + liveHoomInjectScript;
-
-
-                if (!liveHoomInjectScript.IsNullOrWhiteSpace())
-                {
-                    //利用 HtmlAgilityPack 在尾部注入script 标签
-                    var html = await e.GetResponseBodyAsString();
-                    var doc = new HtmlAgilityPack.HtmlDocument();
-                    doc.LoadHtml(html);
-                    //找到body标签,在尾部注入script标签
-                    var body = doc.DocumentNode.SelectSingleNode("//body");
-                    if (body != null)
-                    {
-                        var script = doc.CreateElement("script");
-                        script.InnerHtml = liveHoomInjectScript;
-                        body.AppendChild(script);
-                        var newHtml = doc.DocumentNode.OuterHtml;
-                        e.SetResponseBodyString(newHtml);
-                        Logger.PrintColor($"直播首页{urlNoQuery},用户脚本已成功注入!\n", ConsoleColor.Green);
-                    }
-                }
-            }
+            }            
         }
-
-        //给部分脚本加上时间戳避免缓存
-        private void ScriptAddTocks(HtmlDocument doc)
-        {
-            var scripts = doc.DocumentNode.SelectNodes("//script[@src]");
-            if (scripts != null)
-            {
-                var ticks = DateTime.Now.Ticks;
-                foreach (var script in scripts)
-                {
-                    var src = script.Attributes["src"].Value;
-
-                    var srcUri = new Uri(src);
-                    if (!CheckHost(srcUri.Host)) continue;
-
-                    var fileName = Path.GetFileName(src.Split('?')[0]);
-                    //目前只需要用到相关这些js
-                    if (!fileName.StartsWith("island") && !src.Contains(LIVE_SCRIPT_PATH)) continue;
-
-                    if (src.Contains("?"))
-                    {
-                        src += "&_t=" + ticks;
-                    }
-                    else
-                    {
-                        src += "?_t=" + ticks;
-                    }
-                    script.Attributes["src"].Value = src;
-                }
-
-            }
-        }
-
+     
         //生成注入上下文
         private string BuildContext(IDictionary<string, string> constVals)
         {
@@ -533,9 +487,10 @@ namespace BarrageGrab.Proxy
             if (e.HttpClient.Response.StatusCode != 200) return;
 
             //https://lf-webcast-platform.bytetos.com/obj/webcast-platform-cdn/webcast/douyin_live/chunks/island_a74ce.b55095a0.js
+            //https://lf-webcast-platform.bytetos.com/obj/webcast-platform-cdn/webcast/douyin_live/chunks/PausePop.ec38fcf8.js 2026/04/09
             //判断响应内容是否为js application/javascript
             if (processName != "直播伴侣" && processName != "douyin"
-                && fileName.StartsWith("island")
+                && fileName.ToLower().StartsWith("pausepop")
                 )
             {
                 var js = await e.GetResponseBodyAsString();
@@ -626,6 +581,51 @@ namespace BarrageGrab.Proxy
 
             hostname = hostname.Trim().ToLower();
             return base.CheckHost(hostname);
+        }
+
+        private void WebSocket_DataSent(object sender, DataEventArgs e)
+        {
+            var args = (SessionEventArgs)sender;
+
+            string hostname = args.HttpClient.Request.RequestUri.Host;
+
+            var processid = args.HttpClient.ProcessId.Value;
+
+            List<byte> messageData = new List<byte>();
+
+            foreach (var frame in args.WebSocketDecoderReceive.Decode(e.Buffer, e.Offset, e.Count))
+            {
+                if (frame.OpCode == WebsocketOpCode.Continuation)
+                {
+                    messageData.AddRange(frame.Data.ToArray());
+                    continue;
+                }
+                else
+                {
+                    //读取完毕
+                    byte[] payload;
+                    if (messageData.Count > 0)
+                    {
+                        messageData.AddRange(frame.Data.ToArray());
+                        payload = messageData.ToArray();
+                        messageData.Clear();
+                    }
+                    else
+                    {
+                        payload = frame.Data.ToArray();
+                    }
+
+                    var str = Encoding.UTF8.GetString(payload);
+
+                    //base.FireWsEvent(new WsMessageEventArgs()
+                    //{
+                    //    ProcessID = processid,
+                    //    HostName = hostname,
+                    //    Payload = payload,
+                    //    ProcessName = base.GetProcessName(processid)
+                    //});
+                }
+            }
         }
 
         //WebSocket 流读取

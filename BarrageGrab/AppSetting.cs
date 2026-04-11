@@ -39,8 +39,7 @@ namespace BarrageGrab
                 ShowWindow = bool.Parse(AppSettings["showWindow"].Trim());
                 AutoPause = bool.Parse(AppSettings["autoPause"].Trim());
                 ForcePolling = bool.Parse(AppSettings["forcePolling"].Trim());
-                PollingInterval = int.Parse(AppSettings["pollingInterval"].Trim());
-                DisableLivePageScriptCache = bool.Parse(AppSettings["disableLivePageScriptCache"].Trim());
+                PollingInterval = int.Parse(AppSettings["pollingInterval"].Trim());                
                 WebRoomIds = AppSettings["webRoomIds"].Trim().Split(',').Where(w => !string.IsNullOrWhiteSpace(w)).ToArray();
                 LiveCompanPath = AppSettings["liveCompanPath"].Trim();
                 LiveCompanHookSwitch = bool.Parse(AppSettings["liveCompanHookSwitch"].Trim());
@@ -115,8 +114,7 @@ namespace BarrageGrab
                 BarrageLog = barrage["barrageFileLog"]?.Value<bool>() ?? false;
                 var polling = app["barrage"]["polling"];
                 ForcePolling = polling["enabled"]?.Value<bool>() ?? false;
-                PollingInterval = polling["interval"]?.Value<int>() ?? 3000;
-                DisableLivePageScriptCache = polling["disableScriptCache"]?.Value<bool>() ?? false;
+                PollingInterval = polling["interval"]?.Value<int>() ?? 3000;                
 
                 // 设置默认过滤器
                 PrintFilter = Enum.GetValues(typeof(PackMsgType)).Cast<int>().Where(w => w > 0).ToArray();
@@ -353,14 +351,7 @@ namespace BarrageGrab
                                     PollingInterval = interval;
                                     Logger.PrintColor($"轮询间隔设置为: {interval}ms");
                                 }
-                                break;
-
-                            case "disable-cache":
-                            case "disablecache":
-                                if (switchDef) break;
-                                DisableLivePageScriptCache = ParseBool(paramValue);
-                                Logger.PrintColor($"禁用脚本缓存设置为: {DisableLivePageScriptCache}");
-                                break;
+                                break;                            
 
                             // 直播伴侣相关
                             case "auto-pause":
@@ -529,7 +520,9 @@ namespace BarrageGrab
             { PackMsgType.直播间统计, Tuple.Create(ConsoleColor.Magenta, Color.Magenta) },
             { PackMsgType.粉丝团消息, Tuple.Create(ConsoleColor.Blue, Color.Blue) },
             { PackMsgType.直播间分享, Tuple.Create(ConsoleColor.DarkBlue, Color.DarkBlue) },
-            { PackMsgType.下播, Tuple.Create(ConsoleColor.DarkCyan, Color.DarkCyan) }
+            { PackMsgType.下播, Tuple.Create(ConsoleColor.DarkCyan, Color.DarkCyan) },
+            { PackMsgType.直播伴侣开播, Tuple.Create(ConsoleColor.Yellow, Color.Yellow) },
+            { PackMsgType.直播伴侣下播, Tuple.Create(ConsoleColor.Yellow, Color.Yellow) },
         };
 
         /// <summary>
@@ -626,11 +619,6 @@ namespace BarrageGrab
         /// 控制轮询间隔
         /// </summary>
         public int PollingInterval { get; private set; } = 1000;
-
-        /// <summary>
-        /// 禁用直播页面脚本缓存
-        /// </summary>
-        public bool DisableLivePageScriptCache { get; private set; } = true;
 
         /// <summary>
         /// 配置的串口

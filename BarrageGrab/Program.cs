@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -20,8 +21,17 @@ namespace BarrageGrab
         static WinApi.ControlCtrlDelegate controlCtr = ControlCtrlHandle;
         static Mutex mutex = new Mutex(false, "DyBarrageGrab");
 
+        private const string WatchdogArg = "--watchdog";
+        private const string WatchdogPidArg = "--pid";
+
         static void Main(string[] args)
         {
+            if (IsWatchdogMode(args))
+            {
+                RunWatchdog(args);
+                return;
+            }
+
             if (!mutex.WaitOne(TimeSpan.Zero, true))
             {
                 Console.WriteLine("另一个实例已在运行。");
@@ -30,6 +40,8 @@ namespace BarrageGrab
             }
 
             SetTitle("抖音弹幕监听推送");
+
+            StartWatchdog();
 
             try
             {
@@ -54,6 +66,92 @@ namespace BarrageGrab
 
             Logger.PrintColor("服务器已关闭...");
             WinApi.SetConsoleCtrlHandler(controlCtr, false);//反注册捕获控制台关闭            
+        }
+
+        private static void StartWatchdog()
+        {
+            try
+            {
+                var exePath = Application.ExecutablePath;
+                if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) return;
+
+                var pid = Process.GetCurrentProcess().Id;
+                var args = string.Format("{0} {1} {2}", WatchdogArg, WatchdogPidArg, pid);
+                var psi = new ProcessStartInfo(exePath, args)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+                Process.Start(psi);
+            }
+            catch
+            {
+                // best-effort only
+            }
+        }
+
+        private static bool IsWatchdogMode(string[] args)
+        {
+            return args != null && args.Any(a => string.Equals(a, WatchdogArg, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static int? TryGetWatchdogPid(string[] args)
+        {
+            if (args == null) return null;
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (!string.Equals(args[i], WatchdogPidArg, StringComparison.OrdinalIgnoreCase)) continue;
+                if (i + 1 >= args.Length) return null;
+                int pid;
+                if (int.TryParse(args[i + 1], out pid)) return pid;
+                return null;
+            }
+            return null;
+        }
+
+        private static void RunWatchdog(string[] args)
+        {
+            try
+            {
+                var pid = TryGetWatchdogPid(args);
+                if (pid == null || pid <= 0) return;
+
+                Process target;
+                try
+                {
+                    target = Process.GetProcessById(pid.Value);
+                }
+                catch
+                {
+                    SafeCloseSystemProxy();
+                    return;
+                }
+
+                for (; ; )
+                {
+                    if (target.HasExited) break;
+                    Thread.Sleep(1000);
+                }
+
+                SafeCloseSystemProxy();
+            }
+            catch
+            {
+                try { SafeCloseSystemProxy(); } catch { }
+            }
+        }
+
+        private static void SafeCloseSystemProxy()
+        {
+            try
+            {
+                if (!AppSetting.Current.UsedProxy) return;
+                WinApi.CloseSystemProxy();
+            }
+            catch
+            {
+            }
         }
 
         private static void Init()
